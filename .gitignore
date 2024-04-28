@@ -1,0 +1,15 @@
+.vscode
+.idea
+*.sublime-*
+*.vim
+.vimrc
+
+.DS_Store
+
+/target
+/.local
+
+.env
+.env.*
+*.ig.*
+*.sh
