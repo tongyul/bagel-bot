@@ -4,7 +4,7 @@
 //! <component> ::= (^ | \s) <pos:string>
 //!               | (^ | \s) <key:ident> = <val:string>
 //!               | (+ | -) <flag:ident>
-//! <ident> ::= [a-zA-Z_][a-zA-Z0-9_]*
+//! <ident> ::= [a-zA-Z_.:#$][a-zA-Z0-9_.:#$]*
 //! <string> ::= [^][\s'"{}()=+-|]*
 //!            | ∀x :: ℤ+ : '{x} <string_ex_wo('{x},'{x})> '{x}
 //!            | ∀x :: ℤ+ : "{x} <string_ex_wo("{x},"{x})> "{x}
@@ -16,7 +16,7 @@
 //! <bracket> ::= PAREN | BRACK | BRACE
 //! ```
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Arg<'a> {
     // A positional argument; <string>
     Pos(&'a str),
@@ -24,6 +24,17 @@ pub enum Arg<'a> {
     Kw(&'a str, &'a str),
     // A flag argument; +<ident> (on) or -<ident> (off)
     Flag(bool, &'a str),
+}
+
+impl<'a> std::fmt::Display for Arg<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        use Arg::*;
+        match self {
+            Pos(pos_arg) => write!(f, "{}", pos_arg),
+            Kw(key, kw_arg) => write!(f, "{}={}", key, kw_arg),
+            Flag(set, name) => write!(f, "{}{}", if *set { '+' } else { '-' }, name),
+        }
+    }
 }
 
 // definition section; play nicely with editor paren pairings
@@ -41,6 +52,7 @@ const RBRACK: char = ']';
 const LBRACE: char = '{';
 const RBRACE: char = '}';
 const BRACK_OPEN_CHARS: &'static str = "([{|"; // }])
+const OTHER_IDENT_CHARS: &'static str = "_.:#$";
 const NAKED_STRING_BAN: &'static str = "'\"`|{[(=+-)]}";
 
 pub fn parse<'a, 'b: 'a>(s: &'b str) -> Result<Vec<Arg<'a>>, String> {
@@ -141,7 +153,8 @@ fn _expect_immediate_arg<'a, 'b: 'a>(s: &'b str, i: usize) -> Result<(usize, Arg
 
 fn expect_ident<'a, 'b: 'a>(s: &'b str, i: usize) -> Result<(usize, &'a str), String> {
     fn qualify_ident_char_helper(c: char, isfirst: bool) -> bool {
-        c == '_' || c.is_ascii_alphabetic() || (!isfirst && c.is_ascii_digit())
+        OTHER_IDENT_CHARS.chars().any(|d| d == c)
+            || c.is_ascii_alphabetic() || (!isfirst && c.is_ascii_digit())
     }
     let mut j = i;
     let mut isfst = true;
