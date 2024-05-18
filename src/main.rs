@@ -1,7 +1,13 @@
+// Modules
 mod arg;
-mod help_msgs;
+mod batch;
+mod cmd;
+mod echo;
+mod help;
+mod xiv;
 
-use std::env;
+// Namespace imports
+use std::{ collections::HashMap, env, sync::{ RwLock, Arc } };
 
 use serenity::async_trait;
 use serenity::model::{
@@ -13,12 +19,17 @@ use serenity::prelude::*;
 
 use async_recursion::async_recursion;
 
-use arg::Arg;
-use help_msgs::*;
+use crate::{
+    arg::Arg,
+    cmd::Command,
+};
 
+// Main code of the bot
 struct Handler {
     default_prefix: &'static str,
+
     default_prefix_args: &'static [Arg<'static>],
+    command_table: RwLock<HashMap<&'static str, Arc<dyn Command>>>,
 }
 
 impl Handler {
@@ -31,6 +42,17 @@ impl Handler {
         Self {
             default_prefix,
             default_prefix_args,
+
+            command_table: RwLock::new(HashMap::new()),
+        }
+    }
+    async fn register(&self, c: Arc<dyn Command>) {
+        let mut wlock = self.command_table.write()
+            .expect("(Handler) poisoned command table on write()");
+        for n in c.prefixes().await {
+            if let Some(_) = wlock.insert(n, c.clone()) {
+                panic!("(Handler) duplicate command name {:?}", n);
+            }
         }
     }
     async fn try_say(&self, cx: impl std::fmt::Debug + CacheHttp, chan: &ChannelId, txt: impl Into<String>) {
@@ -42,74 +64,20 @@ impl Handler {
     async fn run_command(&self, ctx: &Context, msg: &Message, args: &[Arg<'_>]) {
         // some built-in commands
         if args.len() == 0 {
-            self.try_say(ctx, &msg.channel_id, "Haiii!!!!").await;
-        } else {
-            let cmd = &args[0];
-            let args = &args[1..];
-            match cmd {
-                Arg::Pos(cmdname @ ("echo" | "printargs" | "print_args" | "join")) => {
-                    let reply = if args.len() == 0 {
-                        "(empty)".to_owned()
-                    } else if *cmdname == "echo" || *cmdname == "join" {
-                        args.iter().fold(String::new(), |mut acc, arg| {
-                            if *cmdname == "echo" {
-                                acc.push(' ');
-                            }
-                            acc.push_str(&format!("{}", arg));
-                            acc
-                        })
-                    } else {
-                        fn __custom_format(a: &Arg<'_>) -> String {
-                            match a {
-                                Arg::Pos(v) => format!("positional argument `{}`", v),
-                                Arg::Kw(k, v) => format!("keyword argument {}=`{}`", k, v),
-                                Arg::Flag(on, k) => format!("flag ({}) {}", if *on {"on"} else {"off"}, k),
-                            }
-                        }
-                        args.iter().enumerate()
-                            .fold(String::new(), |mut acc, (i, a)| {
-                                acc.push_str(&format!("{}. ", i + 1));
-                                acc.push_str(&__custom_format(a));
-                                acc.push('\n');
-                                acc
-                            })
-                    };
-                    self.try_say(ctx, &msg.channel_id, reply).await;
-                }
-                Arg::Pos("batch") => self.the_batch_command(ctx, msg, args).await,
-                _ => {
-                    self.try_say(
-                        ctx, &msg.channel_id,
-                        format!("```\nUnknown command {:?}.\n```", cmd),
-                    ).await;
-                }
-            }
-        }
-    }
-    async fn the_batch_command(&self, ctx: &Context, msg: &Message, args: &[Arg<'_>]) {
-        if args.len() == 0 {
-            self.try_say(ctx, &msg.channel_id, THE_BATCH_COMMAND_HELP).await;
-            return
-        }
-        let sep = &args[0];
-        if let Arg::Pos(_) = sep {} else {
-            let reply = format!(
-                "```\nExpected positional-argument separator; found {} ({:?})\n```", sep, sep);
+            let reply = format!("Hi! Try running `{} help`!!", self.default_prefix);
             self.try_say(ctx, &msg.channel_id, reply).await;
-            return
-        }
-        let mut j = 1;
-        let mut acc = vec![];
-        for i in 1..=args.len() {
-            if i == args.len() || &args[i] == sep {
-                if j + 1 < i {
-                    acc.push(&args[j..i]);
+        } else {
+            let name = format!("{}", args[0]);
+            let cmd = self.command_table.read()
+                .map_err(|_| panic!("(Handler) poisoned command table on read()"))
+                .ok().and_then(|ct| ct.get(&name[..]).map(|c| c.clone()));
+            match cmd {
+                Some(c) => c.run(self, ctx, msg, args).await,
+                None => {
+                    let reply = format!("The command {} doesn't exist.", name);
+                    self.try_say(ctx, &msg.channel_id, reply).await
                 }
-                j = i + 1;
             }
-        }
-        for args in acc.into_iter() {
-            self.run_command(ctx, msg, args).await
         }
     }
 }
@@ -145,14 +113,6 @@ impl EventHandler for Handler {
                     }
                 }
             }
-            // let reply = match arg::parse(&msg.content[self.default_prefix.len()..]) {
-            //     Ok(args) => format!("```\n{:?}\n```", args),
-            //     Err(s) => format!("```\n{}\n```", s),
-            // };
-            // eprintln!("Reply: {}", reply);
-            // if let Err(why) = msg.channel_id.say(&ctx.http, &reply).await {
-            //     eprintln!("Error sending message: {:?}", why);
-            // }
         }
     }
 
@@ -184,6 +144,10 @@ async fn main() {
     // Create a new instance of the Client, logging in as a bot. This will automatically prepend
     // your bot token with "Bot ", which is a requirement by Discord for bot users.
     let handler = Handler::new(default_prefix).await;
+    handler.register(Arc::new(batch::Batch)).await;
+    handler.register(Arc::new(echo::Echo)).await;
+    handler.register(Arc::new(help::Help)).await;
+    handler.register(Arc::new(xiv::Archive)).await;
     let mut client =
         Client::builder(&token, intents).event_handler(handler).await.expect("Err creating client");
 
