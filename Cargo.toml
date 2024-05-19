@@ -7,7 +7,9 @@ edition = "2021"
 
 [dependencies]
 async-recursion = "1.1.1"
+log = "0.4.21"
 serenity = "0.12.1"
+stderrlog = "0.6.0"
 tokio = { version = "1.37.0", features = ["full"] }
 
 # [target.x86_64-unknown-linux-gnu]

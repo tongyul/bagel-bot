@@ -8,16 +8,17 @@ mod xiv;
 
 // Namespace imports
 use std::{ collections::HashMap, env, sync::{ RwLock, Arc } };
-
-use serenity::async_trait;
-use serenity::model::{
-    channel::Message,
-    id::ChannelId,
-    gateway::Ready,
-};
-use serenity::prelude::*;
-
 use async_recursion::async_recursion;
+use serenity::{
+    async_trait,
+    model::{
+        channel::Message,
+        id::ChannelId,
+        gateway::Ready,
+    },
+    prelude::*,
+};
+use log::*;
 
 use crate::{
     arg::Arg,
@@ -57,7 +58,7 @@ impl Handler {
     }
     async fn try_say(&self, cx: impl std::fmt::Debug + CacheHttp, chan: &ChannelId, txt: impl Into<String>) {
         if let Err(why) = chan.say(cx.http(), txt).await {
-            eprintln!("Error sending message: {:?}\nContext: {:?}\nChannel: {:?}", why, cx, chan);
+            error!("Error sending message: {:?}\nContext: {:?}\nChannel: {:?}", why, cx, chan);
         }
     }
     #[async_recursion]
@@ -90,10 +91,10 @@ impl EventHandler for Handler {
     // dispatched simultaneously.
     async fn message(&self, ctx: Context, msg: Message) {
         if msg.content[..].starts_with(self.default_prefix) && msg.webhook_id.is_none() {
-            eprintln!("Received non-webhook command (default prefix)\n{:?}", msg.content);
+            info!("Received non-webhook command (default prefix)\n{:?}", msg.content);
             match arg::parse(&msg.content) {
                 Err(s) => {
-                    eprintln!("Argument parsing error: {}", s);
+                    info!("Argument parsing error: {}", s);
                     let reply = format!("```\n{}\n```", s);
                     self.try_say(&ctx, &msg.channel_id, reply).await;
                 }
@@ -122,12 +123,13 @@ impl EventHandler for Handler {
     //
     // In this case, just print what the current user's username is.
     async fn ready(&self, _: Context, ready: Ready) {
-        println!("{} is connected!", ready.user.name);
+        info!("{} is connected!", ready.user.name);
     }
 }
 
 #[tokio::main]
 async fn main() {
+    stderrlog::new().module(module_path!()).init().unwrap();
     // Configure the client with your Discord bot token in the environment.
     let token = env::var("DISCORD_TOKEN").expect("Expected a token in the environment");
     // Retrieve the default prefix
@@ -156,6 +158,6 @@ async fn main() {
     // Shards will automatically attempt to reconnect, and will perform exponential backoff until
     // it reconnects.
     if let Err(why) = client.start().await {
-        println!("Client error: {why:?}");
+        error!("Client error: {why:?}");
     }
 }

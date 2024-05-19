@@ -16,6 +16,8 @@
 //! <bracket> ::= PAREN | BRACK | BRACE
 //! ```
 
+use log::*;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Arg<'a> {
     // A positional argument; <string>
@@ -64,7 +66,7 @@ pub fn parse<'a, 'b: 'a>(s: &'b str) -> Result<Vec<Arg<'a>>, String> {
         let (j, a) = match _expect_next_arg(s_trimmed, i) {
             Ok(x) => x,
             Err(m) => {
-                eprintln!("{:?} | {}", acc, i);
+                debug!("{:?} | {}", acc, i);
                 return Err(m);
             }
         };
